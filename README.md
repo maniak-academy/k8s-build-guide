@@ -1,5 +1,37 @@
 # k8s-build-guide
 
+Building Ansible Playbook to install k8s in my home lab
+
+## Setup SSH 
+Open Terminal on your Mac by pressing Command + Space to open Spotlight Search, then type "Terminal" and press Enter.
+Generate a new SSH key pair by typing the following command and pressing Enter:
+
+```
+ssh-keygen -t ed25519 -C "your_email@example.com"
+```
+
+Replace "your_email@example.com (mailto:your_email@example.com)" with your email address. You can leave the passphrase empty or enter a passphrase for added security.
+
+Copy the public key to your Ubuntu servers using the ssh-copy-id command. Replace "user" with your Ubuntu server username and "your_server_ip" with the IP address of your Ubuntu server:
+
+```
+ssh-copy-id -i ~/.ssh/id_ed25519.pub user@your_server_ip
+```
+
+Test the SSH connection by typing the following command and pressing Enter:
+
+```
+ssh user@your_server_ip
+```
+
+You should now be able to connect to your Ubuntu servers via SSH from your Mac without a password.
+
+
+echo "smaniak ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/smaniak
+
+
+
+
 Seb's guide for ubuntu
 
 Prerequisites: Ensure that you have a clean Ubuntu 22.04 installation on all three machines. The machines should have at least 2GB of RAM and 2 CPUs each. Also, make sure you have a user with sudo privileges on all machines.
