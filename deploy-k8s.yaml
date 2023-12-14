@@ -1,0 +1,216 @@
+- hosts: "master, workers"
+  become: yes
+
+  tasks:
+    - name: Add user to sudo group
+      user:
+        name: smaniak
+        groups: sudo
+        append: yes
+    - name: Configure containerd and kernel
+      block:
+        - name: Configure containerd
+          shell: |
+            sudo tee /etc/modules-load.d/containerd.conf <<EOF
+            overlay
+            br_netfilter
+            EOF
+            sudo modprobe overlay
+            sudo modprobe br_netfilter
+        - name: Configure kernel
+          shell: |
+            sudo tee /etc/sysctl.d/kubernetes.conf <<EOF
+            net.bridge.bridge-nf-call-ip6tables = 1
+            net.bridge.bridge-nf-call-iptables = 1
+            net.ipv4.ip_forward = 1
+            EOF
+        - name: Apply changes
+          shell: sudo sysctl --system
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Install containerd
+      block:
+        - name: Install dependencies
+          apt:
+            name: [ 'apt-transport-https','ca-certificates','curl','gnupg-agent','software-properties-common' ]
+            state: present
+            update_cache: yes
+        - name: Add containerd gpg key
+          apt_key:
+            url: https://download.docker.com/linux/ubuntu/gpg
+            state: present
+        - name: Add containerd software repository
+          apt_repository:
+            repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable
+            state: present
+            filename: docker.list
+            update_cache: yes
+        - name: Install containerd
+          apt:
+            name: [ 'containerd.io' ]
+            state: present
+            update_cache: yes
+        - name: Configure containerd
+          shell: |
+            sudo mkdir -p /etc/containerd
+            sudo containerd config default | sudo tee /etc/containerd/config.toml
+            sudo sed -i 's/SystemdCgroup \= false/SystemdCgroup \= true/g' /etc/containerd/config.toml
+        - name: Restart and enable containerd
+          systemd:
+            name: containerd
+            state: restarted
+            enabled: yes
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Disable swap
+      shell: swapoff -a
+    - name: Stop swap from mounting
+      shell: sed -i 's/^\/swap/#\/swap/g' /etc/fstab
+
+    - name: Install Kubernetes
+      block:
+        - name: Install dependencies
+          apt:
+            name: [ 'apt-transport-https','ca-certificates','curl','gnupg-agent','software-properties-common' ]
+            state: present
+            update_cache: yes
+        - name: Add Kubernetes gpg key
+          apt_key:
+            url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+            state: present
+        - name: Add Kubernetes software repository
+          apt_repository:
+            repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
+            state: present
+            filename: kubernetes.list
+            update_cache: yes
+        - name: Install kubernetes
+          apt:
+            name: [ 'kubelet','kubeadm','kubectl' ]
+            state: present
+            update_cache: yes
+        - name: Hold kubelet package at current version
+          ansible.builtin.dpkg_selections:
+            name: 'kubelet'
+            selection: hold
+        - name: Hold kubeadm package at current version
+          ansible.builtin.dpkg_selections:
+            name: 'kubeadm'
+            selection: hold
+        - name: Hold kubectl package at current version
+          ansible.builtin.dpkg_selections:
+            name: 'kubectl'
+            selection: hold
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Install iscsi and nfs-common
+      apt:
+        name: [ 'open-iscsi', 'nfs-common' ]
+        state: present
+        update_cache: yes
+
+# Ansible playbook to initialize the master node
+- hosts: master
+  become: yes # Run as root
+
+  vars:
+    user: smaniak
+
+  tasks:
+    - name: Check if the master node is already initialized
+      stat:
+        path: /etc/kubernetes/admin.conf
+      register: kubeadm_init
+    - name: Initialize the master node
+      command: kubeadm init --pod-network-cidr=10.244.0.0/16
+      when: kubeadm_init.stat.exists == false # Only run if the master node is not already initialized
+    - name: Create .kube directory
+      file:
+        path: /home/{{ user }}/.kube
+        state: directory
+        owner: "{{ user }}"
+        group: "{{ user }}"
+        mode: 0755
+      when: kubeadm_init.stat.exists == false # Only run if the master node is not already initialized
+    - name: Copy the kube config file
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/{{ user }}/.kube/config
+        remote_src: yes
+        owner: "{{ user }}"
+        group: "{{ user }}"
+        mode: 0644
+      when: kubeadm_init.stat.exists == false # Only run if the master node is not already initialized
+    - name: Install flannel CNI
+      command: kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+      become: yes
+      become_user: "{{ user }}"
+    - name: Get the token for joining the worker nodes
+      become: yes
+      become_user: "{{ user }}"
+      shell: kubeadm token create  --print-join-command
+      register: kubernetes_join_command
+    - name: Display registered output
+      debug:
+        var: kubernetes_join_command.stdout_lines
+    - name: Set strictARP for metallb
+      shell: |
+        kubectl get configmap kube-proxy -n kube-system -o yaml | \
+        sed -e "s/strictARP: false/strictARP: true/" | \
+        kubectl apply -f - -n kube-system
+      become: yes
+      become_user: "{{ user }}"
+    - name: Install metallb namespace
+      command: kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.10.3/manifests/namespace.yaml
+      become: yes
+      become_user: "{{ user }}"
+    - name: Install metallb
+      command: kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.12/config/manifests/metallb-native.yaml
+      become: yes
+      become_user: "{{ user }}"
+    # # Setup Metallb
+    - name: Copy metallb config file
+      copy:
+        src: "metallb-config.yaml"
+        dest: /home/{{ user }}/metallb-config.yaml
+        owner: "{{ user }}"
+        group: "{{ user }}"
+        mode: 0755
+    - name: Install metallb config
+      command: kubectl apply -f /home/{{ user }}/metallb-config.yaml
+      become: yes
+      become_user: "{{ user }}"
+    - name: Rolling restart of metallb pods
+      command: kubectl rollout restart deployment controller -n metallb-system
+      become_user: "{{ user }}"
+      become: yes
+    # Setup Longhorn
+    - name: Remove taint from master node to allow disk replication
+      command: kubectl taint nodes --all node-role.kubernetes.io/control-plane-
+      become: yes
+      become_user: "{{ user }}"
+    - name: Install Longhorn
+      command: kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/v1.5.3/deploy/longhorn.yaml
+      become: yes
+      become_user: "{{ user }}"
+    - name: Create dummy host to store variable for node config
+      add_host:
+        name: "TMP_HOST"
+        JOIN_COMMAND: "{{ kubernetes_join_command.stdout_lines[0] }}"
+
+# Ansible playbook to join the worker nodes to the cluster
+- hosts: workers
+  become: yes # Run as root
+
+  vars:
+    user: "smaniak"
+    
+  tasks:
+    - name: Check if the worker node is already joined
+      stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: kubeadm_join
+    - name: Join the worker nodes to the cluster
+      command: "{{ hostvars['TMP_HOST']['JOIN_COMMAND'] }}"
+      become: yes
+      when: kubeadm_join.stat.exists == false # Only run if the worker node is not already joined
