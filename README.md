@@ -3,12 +3,13 @@
 Building Ansible Playbook to install k8s in my home lab
 
 
-* Ubuntu OS 
+* Ubuntu OS [Note: the username being used, you might have to change it to yours]
 
 * Longhorn is a distributed block storage system for Kubernetes. Longhorn is cloud-native storage built using Kubernetes and container primitives. Longhorn is lightweight, reliable, and powerful. You can install Longhorn on an existing Kubernetes cluster with one kubectl apply command or by using Helm charts.
 
 * MetalLB is a load-balancer implementation for bare metal Kubernetes clusters, using standard routing protocols. MetalLB is a young project. You should treat it as a beta system.
 
+![Local Image](lab.png)
 
 ## Deploy Ubuntu VM's
 
