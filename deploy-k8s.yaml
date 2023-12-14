@@ -176,14 +176,14 @@
         owner: "{{ user }}"
         group: "{{ user }}"
         mode: 0755
-    - name: Install metallb config
-      command: kubectl apply -f /home/{{ user }}/metallb-config.yaml
-      become: yes
-      become_user: "{{ user }}"
-    - name: Rolling restart of metallb pods
-      command: kubectl rollout restart deployment controller -n metallb-system
-      become_user: "{{ user }}"
-      become: yes
+    # - name: Install metallb config
+    #   command: kubectl apply -f /home/{{ user }}/metallb-config.yaml
+    #   become: yes
+    #   become_user: "{{ user }}"
+    # - name: Rolling restart of metallb pods
+    #   command: kubectl rollout restart deployment controller -n metallb-system
+    #   become_user: "{{ user }}"
+    #   become: yes
     # Setup Longhorn
     - name: Remove taint from master node to allow disk replication
       command: kubectl taint nodes --all node-role.kubernetes.io/control-plane-
