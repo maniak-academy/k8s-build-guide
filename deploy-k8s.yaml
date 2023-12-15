@@ -185,10 +185,10 @@
     #   become_user: "{{ user }}"
     #   become: yes
     # Setup Longhorn
-    - name: Remove taint from master node to allow disk replication
-      command: kubectl taint nodes --all node-role.kubernetes.io/control-plane-
-      become: yes
-      become_user: "{{ user }}"
+    # - name: Remove taint from master node to allow disk replication
+    #   command: kubectl taint nodes --all node-role.kubernetes.io/control-plane-
+    #   become: yes
+    #   become_user: "{{ user }}"
     - name: Install Longhorn
       command: kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/v1.5.3/deploy/longhorn.yaml
       become: yes
@@ -214,3 +214,27 @@
       command: "{{ hostvars['TMP_HOST']['JOIN_COMMAND'] }}"
       become: yes
       when: kubeadm_join.stat.exists == false # Only run if the worker node is not already joined
+
+# Install Helm
+- hosts: workers, master
+  become: yes # Run as root
+
+  vars:
+    user: "smaniak"
+  tasks:
+    - name: Add Helm repo key
+      apt_key:
+        url: https://baltocdn.com/helm/signing.asc
+        state: present
+
+    - name: Add Helm repository
+      apt_repository:
+        repo: deb https://baltocdn.com/helm/stable/debian/ all main
+        state: present
+        update_cache: yes
+
+    - name: Install Helm
+      apt:
+        name: helm
+        state: present
+        update_cache: yes
