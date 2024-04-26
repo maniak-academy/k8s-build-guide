@@ -80,7 +80,7 @@
             state: present
         - name: Add Kubernetes software repository
           apt_repository:
-            repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
+            repo: deb [arch=amd64] https://apt.kubernetes.io/ kubernetes-focal main
             state: present
             filename: kubernetes.list
             update_cache: yes
